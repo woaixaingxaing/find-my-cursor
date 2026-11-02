@@ -16,6 +16,24 @@ namespace FindMyCursor
                 return;
             }
 
+            if (args.Length > 0 && string.Equals(args[0], "--exit", StringComparison.OrdinalIgnoreCase))
+            {
+                // No tray icon: allow the hidden instance to be stopped from
+                // a shortcut or command line without Task Manager.
+                try
+                {
+                    using (System.Threading.EventWaitHandle exit =
+                        System.Threading.EventWaitHandle.OpenExisting("Local\\FindMyCursor.Exit"))
+                    {
+                        exit.Set();
+                    }
+                }
+                catch
+                {
+                }
+                return;
+            }
+
             bool demo = args.Length > 0 && string.Equals(args[0], "--demo", StringComparison.OrdinalIgnoreCase);
             bool silent = args.Length > 0 && string.Equals(args[0], "--silent", StringComparison.OrdinalIgnoreCase);
 
@@ -112,6 +130,7 @@ namespace FindMyCursor
         private readonly ImeIndicator _ime;
         private readonly Control _dispatcher = new Control();
         private readonly System.Threading.EventWaitHandle _triggerEvent;
+        private readonly System.Threading.EventWaitHandle _exitEvent;
         private readonly ToolStripMenuItem _enableItem;
 
         private RippleOverlay _overlay;
@@ -135,6 +154,14 @@ namespace FindMyCursor
             System.Threading.Thread triggerThread = new System.Threading.Thread(TriggerLoop);
             triggerThread.IsBackground = true;
             triggerThread.Start();
+
+            bool exitEventCreated;
+            _exitEvent = new System.Threading.EventWaitHandle(false,
+                System.Threading.EventResetMode.AutoReset, "Local\\FindMyCursor.Exit",
+                out exitEventCreated);
+            System.Threading.Thread exitThread = new System.Threading.Thread(ExitLoop);
+            exitThread.IsBackground = true;
+            exitThread.Start();
 
             Settings.Load();
             Settings.EnsureFile();
@@ -341,15 +368,23 @@ namespace FindMyCursor
                 }
             }
 
-            _tray = new NotifyIcon();
-            _tray.Icon = _trayIcon;
-            _tray.Text = "找找鼠标 · 摇一摇定位指针";
-            _tray.Visible = true;
-            _tray.ContextMenuStrip = menu;
-            _tray.MouseClick += delegate(object sender, MouseEventArgs e)
+            if (Settings.ShowTray)
             {
-                if (e.Button == MouseButtons.Left) TriggerAtCursor();
-            };
+                _tray = new NotifyIcon();
+                _tray.Icon = _trayIcon;
+                _tray.Text = "找找鼠标 · 摇一摇定位指针";
+                _tray.Visible = true;
+                _tray.ContextMenuStrip = menu;
+                _tray.MouseClick += delegate(object sender, MouseEventArgs e)
+                {
+                    if (e.Button == MouseButtons.Left) TriggerAtCursor();
+                };
+                Log.Write("tray icon shown");
+            }
+            else
+            {
+                Log.Write("tray icon hidden");
+            }
 
             _restoreTimer.Interval = 1500;
             _restoreTimer.Tick += delegate
@@ -377,8 +412,11 @@ namespace FindMyCursor
             if (!_hook.Start())
             {
                 Log.Write("mouse hook failed");
-                _tray.ShowBalloonTip(4000, "找找鼠标", "全局鼠标监听启动失败，可以用托盘菜单或 Ctrl+Alt+F 手动触发。",
-                    ToolTipIcon.Warning);
+                if (_tray != null)
+                {
+                    _tray.ShowBalloonTip(4000, "找找鼠标", "全局鼠标监听启动失败，可以用 Ctrl+Alt+F 手动触发。",
+                        ToolTipIcon.Warning);
+                }
             }
             else
             {
@@ -414,6 +452,24 @@ namespace FindMyCursor
                 catch
                 {
                 }
+            }
+        }
+
+        private void ExitLoop()
+        {
+            while (true)
+            {
+                if (!_exitEvent.WaitOne(500)) continue;
+                if (_disposed) break;
+
+                try
+                {
+                    _dispatcher.BeginInvoke((MethodInvoker)delegate { Quit(); });
+                }
+                catch
+                {
+                }
+                break;
             }
         }
 
@@ -568,7 +624,7 @@ namespace FindMyCursor
                 catch { }
                 _dimOverlay = null;
             }
-            _tray.Visible = false;
+            if (_tray != null) _tray.Visible = false;
             ExitThread();
         }
 
@@ -614,8 +670,11 @@ namespace FindMyCursor
             _hook.Dispose();
             _keyboardHook.Dispose();
 
-            _tray.Visible = false;
-            _tray.Dispose();
+            if (_tray != null)
+            {
+                _tray.Visible = false;
+                _tray.Dispose();
+            }
             if (_ownsTrayIcon)
             {
                 _trayIcon.Dispose();

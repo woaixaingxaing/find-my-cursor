@@ -10,6 +10,7 @@ namespace FindMyCursor
         public static double Scale = 4.0;
         public static bool Enabled = true;
         public static bool Enlarge = true;
+        public static bool ShowTray = false;
 
         // auto = use the colours sampled from the live cursor
         // fixed = use FillColor / OutlineColor below
@@ -90,6 +91,10 @@ namespace FindMyCursor
                     {
                         Enlarge = value != "0";
                     }
+                    else if (string.Equals(key, "tray", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ShowTray = value != "0";
+                    }
                     else if (string.Equals(key, "colorMode", StringComparison.OrdinalIgnoreCase))
                     {
                         ColorMode = string.Equals(value, "fixed", StringComparison.OrdinalIgnoreCase)
@@ -146,6 +151,7 @@ namespace FindMyCursor
                     "scale=" + Scale.ToString("0.0", CultureInfo.InvariantCulture) + Environment.NewLine +
                     "enabled=" + (Enabled ? "1" : "0") + Environment.NewLine +
                     "enlarge=" + (Enlarge ? "1" : "0") + Environment.NewLine +
+                    "tray=" + (ShowTray ? "1" : "0") + Environment.NewLine +
                     "colorMode=" + ColorMode + Environment.NewLine +
                     "fill=" + Hex(FillColor) + Environment.NewLine +
                     "outline=" + Hex(OutlineColor) + Environment.NewLine +
