@@ -18,8 +18,6 @@ namespace FindMyCursor
         private int _head;
         private int _count;
         private long _lastFeed = -1000;
-        private int _lastX;
-        private int _lastY;
         private long _cooldownUntil;
 
         public double WindowMs { get; set; }
@@ -38,27 +36,25 @@ namespace FindMyCursor
             MinSpan = 120;
             MinPath = 400;
             CooldownMs = 2500;
-            MinDurationMs = 500;
-            MinReversalIntervalMs = 80;
-            MaxReversalsPerSecond = 10.0;
+            MinDurationMs = 350;
+            MinReversalIntervalMs = 60;
+            MaxReversalsPerSecond = 15.0;
         }
 
         public bool Feed(int x, int y)
         {
             long now = AppClock.Milliseconds;
 
-            // High-polling mice can deliver thousands of events per second.
-            // The actual gesture only needs ~125 Hz; ignore sub-2px movement
-            // inside 8 ms so the low-level hook stays cheap.
-            if (now - _lastFeed < 8 &&
-                Math.Abs(x - _lastX) < 2 && Math.Abs(y - _lastY) < 2)
+            // Cap the sample rate at ~125 Hz. The gesture does not need more,
+            // and this keeps the ring buffer covering several seconds even on
+            // a 1000-8000 Hz mouse, so a long shake is not truncated before it
+            // can be recognized.
+            if (now - _lastFeed < 8)
             {
                 return false;
             }
 
             _lastFeed = now;
-            _lastX = x;
-            _lastY = y;
 
             int tail = (_head + _count) % _ring.Length;
             _ring[tail] = new Sample { X = x, Y = y, T = now };

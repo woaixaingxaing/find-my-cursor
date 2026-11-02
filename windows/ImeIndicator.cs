@@ -42,6 +42,7 @@ namespace FindMyCursor
         private int _currentState = -1;
         private int _pendingState = -1;
         private long _pendingSince;
+        private bool _wasCursorActive;
 
         public static bool CapsOn;
 
@@ -77,30 +78,56 @@ namespace FindMyCursor
 
         private void OnTick(object sender, EventArgs e)
         {
-            if (!_enabled || CursorScaler.IsActive)
+            if (!_enabled)
             {
+                _wasCursorActive = false;
                 _pendingState = -1;
                 return;
+            }
+
+            if (CursorScaler.IsActive)
+            {
+                // The magnifier owns the cursor while it animates. Remember
+                // that it did, so the colour is reapplied when it finishes.
+                _wasCursorActive = true;
+                _pendingState = -1;
+                return;
+            }
+
+            bool recovering = _wasCursorActive;
+            if (recovering)
+            {
+                // CursorScaler restores the pre-magnification system cursor,
+                // which is the uncoloured arrow. Force a repaint even when
+                // the IME state itself did not change, otherwise the pointer
+                // can stay colourless until the next IME switch.
+                _wasCursorActive = false;
+                _currentState = -1;
+                _pendingState = -1;
+                Log.Write("ime reapply after magnify");
             }
 
             int state = GetState();
-            if (state == _currentState)
+            if (!recovering)
             {
-                _pendingState = -1;
-                return;
-            }
+                if (state == _currentState)
+                {
+                    _pendingState = -1;
+                    return;
+                }
 
-            // Debounce: switching foreground to a short-lived tooltip / agent
-            // panel with an English layout used to flash the cursor blue for
-            // one tick. Require the new state to stay stable before applying.
-            long now = AppClock.Milliseconds;
-            if (state != _pendingState)
-            {
-                _pendingState = state;
-                _pendingSince = now;
-                return;
+                // Debounce: switching foreground to a short-lived tooltip / agent
+                // panel with an English layout used to flash the cursor blue for
+                // one tick. Require the new state to stay stable before applying.
+                long now = AppClock.Milliseconds;
+                if (state != _pendingState)
+                {
+                    _pendingState = state;
+                    _pendingSince = now;
+                    return;
+                }
+                if (now - _pendingSince < 400) return;
             }
-            if (now - _pendingSince < 400) return;
 
             if (SetStateCursor(state))
             {

@@ -405,6 +405,16 @@ namespace FindMyCursor
             };
 
             _keyboardHook = new KeyboardHook();
+            _keyboardHook.RightShiftDoublePressed += delegate
+            {
+                try
+                {
+                    _dispatcher.BeginInvoke((MethodInvoker)delegate { TriggerAtCursor(); });
+                }
+                catch
+                {
+                }
+            };
             if (!_keyboardHook.Start()) Log.Write("keyboard hook failed");
 
             _hook = new MouseHook();
