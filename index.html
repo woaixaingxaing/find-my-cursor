@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>摇一摇，找到指针 · Find My Cursor</title>
+<style>
+  :root{
+    --ink: #f4f6fb;
+    --muted: rgba(238, 243, 255, .62);
+    --faint: rgba(238, 243, 255, .38);
+    --line: rgba(255,255,255,.11);
+    --glass: rgba(15, 19, 31, .58);
+    --zoom: 2.4;
+  }
+
+  *{ box-sizing: border-box; }
+  html, body{ height: 100%; margin: 0; }
+  body{
+    overflow: hidden;
+    color: var(--ink);
+    background: #06080f;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+  .custom-cursor, .custom-cursor *{ cursor: none !important; }
+
+  /* ---------- desktop backdrop ---------- */
+  .stage{ position: fixed; inset: 0; overflow: hidden; }
+  .wallpaper{
+    position: absolute; inset: -2%;
+    background:
+      radial-gradient(1100px 760px at 12% 8%, rgba(74, 143, 255, .48), transparent 62%),
+      radial-gradient(980px 720px at 88% 14%, rgba(255, 106, 156, .34), transparent 64%),
+      radial-gradient(900px 760px at 74% 92%, rgba(255, 173, 92, .26), transparent 62%),
+      radial-gradient(860px 680px at 24% 88%, rgba(54, 221, 199, .26), transparent 64%),
+      linear-gradient(160deg, #0a1020 0%, #0a0b16 46%, #0d0a12 100%);
+  }
+  .aurora{
+    position: absolute; border-radius: 50%; filter: blur(80px); opacity: .55;
+    mix-blend-mode: screen; pointer-events: none; will-change: transform;
+  }
+  .a1{ width: 46vw; height: 46vw; left: -8vw; top: -14vw;
+    background: radial-gradient(circle, rgba(86, 156, 255, .55), transparent 66%);
+    animation: drift1 34s ease-in-out infinite alternate; }
+  .a2{ width: 42vw; height: 42vw; right: -10vw; top: -10vw;
+    background: radial-gradient(circle, rgba(255, 110, 164, .42), transparent 66%);
+    animation: drift2 41s ease-in-out infinite alternate; }
+  .a3{ width: 50vw; height: 40vw; right: 4vw; bottom: -20vw;
+    background: radial-gradient(circle, rgba(255, 178, 96, .30), transparent 68%);
+    animation: drift3 47s ease-in-out infinite alternate; }
+  @keyframes drift1{ to{ transform: translate3d(6vw, 4vw, 0) scale(1.08); } }
+  @keyframes drift2{ to{ transform: translate3d(-5vw, 5vw, 0) scale(1.12); } }
+  @keyframes drift3{ to{ transform: translate3d(-4vw, -4vw, 0) scale(1.06); } }
+
+  .grain{
+    position: absolute; inset: 0; pointer-events: none; opacity: .05;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    mix-blend-mode: overlay;
+  }
+  .vignette{
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(120% 100% at 50% 45%, transparent 55%, rgba(2,3,8,.55) 100%);
+  }
+
+  /* ---------- menu bar ---------- */
+  .menubar{
+    position: absolute; top: 0; left: 0; right: 0; height: 36px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 18px;
+    font-size: 12.5px; letter-spacing: .01em;
+    color: rgba(244,247,255,.86);
+    background: rgba(9, 11, 20, .38);
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    backdrop-filter: blur(28px) saturate(1.6);
+    -webkit-backdrop-filter: blur(28px) saturate(1.6);
+    z-index: 40;
+  }
+  .mb-left, .mb-right{ display: flex; align-items: center; gap: 18px; white-space: nowrap; }
+  .mb-left .mark{
+    width: 15px; height: 15px; border-radius: 50%;
+    background: conic-gradient(from 210deg, #9ad9ff, #c9a7ff, #ffc2a1, #9ad9ff);
+    box-shadow: 0 0 12px rgba(154, 217, 255, .55);
+  }
+  .mb-left .app{ font-weight: 650; }
+  .mb-left span:not(.app):not(.mark){ color: rgba(244,247,255,.7); }
+  .mb-right{ gap: 14px; color: rgba(244,247,255,.72); font-variant-numeric: tabular-nums; }
+  .mb-right svg{ display: block; opacity: .85; }
+
+  /* ---------- windows ---------- */
+  .desktop{ position: absolute; inset: 36px 0 0; z-index: 10; }
+  .window{
+    position: absolute;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(24,29,44,.64), rgba(12,15,26,.55));
+    border: 1px solid rgba(255,255,255,.12);
+    box-shadow:
+      0 40px 90px rgba(0,0,0,.55),
+      0 2px 0 rgba(255,255,255,.08) inset,
+      0 0 0 1px rgba(0,0,0,.18);
+    backdrop-filter: blur(34px) saturate(1.5);
+    -webkit-backdrop-filter: blur(34px) saturate(1.5);
+  }
+  .titlebar{
+    height: 40px; display: flex; align-items: center; gap: 8px;
+    padding: 0 14px;
+    border-bottom: 1px solid rgba(255,255,255,.07);
+    font-size: 11.5px; color: rgba(240,244,255,.52);
+  }
+  .dot{ width: 11px; height: 11px; border-radius: 50%; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.25); }
+  .dot.r{ background: #ff6159; } .dot.y{ background: #ffbd2e; } .dot.g{ background: #28c941; }
+  .titlebar .title{ margin: 0 auto; transform: translateX(-18px); letter-spacing: .02em; }
+
+  .main-window{ left: clamp(26px, 7vw, 118px); top: 76px; width: min(540px, 44vw); }
+  .main-window .content{ padding: 30px 34px 32px; }
+  .eyebrow{
+    margin: 0 0 14px; font-size: 10.5px; font-weight: 650;
+    letter-spacing: .18em; text-transform: uppercase;
+    color: rgba(154, 205, 255, .8);
+  }
+  h1{
+    margin: 0; font-size: clamp(34px, 4vw, 52px); line-height: 1.05;
+    letter-spacing: -.035em; font-weight: 700;
+  }
+  h1 .grad{
+    background: linear-gradient(105deg, #ffffff 6%, #a8d6ff 46%, #ffc9ab 92%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .lede{
+    margin: 18px 0 24px; max-width: 40ch;
+    font-size: 14px; line-height: 1.75; color: var(--muted);
+  }
+  .specs{ border-top: 1px solid var(--line); }
+  .spec{
+    display: grid; grid-template-columns: 64px 1fr auto; gap: 14px; align-items: baseline;
+    padding: 11px 0; border-bottom: 1px solid rgba(255,255,255,.065);
+    font-size: 12.5px;
+  }
+  .spec .k{ color: var(--faint); letter-spacing: .08em; font-size: 10.5px; }
+  .spec .v{ color: rgba(240,245,255,.82); }
+  .spec .n{ color: rgba(154,205,255,.75); font-variant-numeric: tabular-nums; font-size: 11.5px; }
+  .cta{
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 22px; font-size: 12px; color: var(--faint);
+  }
+  kbd{
+    display: inline-block; min-width: 22px; padding: 2px 6px;
+    border-radius: 6px; border: 1px solid rgba(255,255,255,.16);
+    background: rgba(255,255,255,.07);
+    font: inherit; font-size: 10.5px; text-align: center; color: rgba(244,247,255,.8);
+  }
+
+  .why-window{ right: clamp(26px, 6vw, 104px); top: 208px; width: min(370px, 31vw); }
+  .why-window .content{ padding: 22px 24px 24px; }
+  .why-window h2{
+    margin: 2px 0 16px; font-size: 15px; font-weight: 650; letter-spacing: -.01em;
+  }
+  .reasons{ list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; }
+  .reasons li{ display: grid; grid-template-columns: 28px 1fr; gap: 10px; }
+  .num{
+    width: 26px; height: 26px; border-radius: 9px;
+    display: grid; place-items: center;
+    font-size: 10px; font-weight: 700; letter-spacing: .02em;
+    color: rgba(168, 214, 255, .9);
+    background: rgba(120, 180, 255, .10);
+    border: 1px solid rgba(140, 195, 255, .18);
+  }
+  .reasons strong{ display: block; font-size: 12.5px; font-weight: 620; margin-bottom: 3px; }
+  .reasons p{ margin: 0; font-size: 11.5px; line-height: 1.6; color: var(--muted); }
+
+  /* ---------- dock ---------- */
+  .dock{
+    position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+    display: flex; align-items: flex-end; gap: 10px;
+    padding: 9px 12px; border-radius: 20px;
+    background: rgba(18, 22, 36, .42);
+    border: 1px solid rgba(255,255,255,.14);
+    box-shadow: 0 22px 50px rgba(0,0,0,.45), 0 1px 0 rgba(255,255,255,.14) inset;
+    backdrop-filter: blur(26px) saturate(1.5);
+    -webkit-backdrop-filter: blur(26px) saturate(1.5);
+    z-index: 30;
+  }
+  .dock button{
+    width: 44px; height: 44px; padding: 0; border: 0; border-radius: 12px;
+    display: grid; place-items: center;
+    font-size: 19px; color: rgba(255,255,255,.92);
+    box-shadow: 0 6px 14px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.28);
+    transition: transform .34s cubic-bezier(.34,1.6,.5,1), filter .2s;
+    transform-origin: 50% 100%;
+  }
+  .dock button:hover{ transform: translateY(-9px) scale(1.16); filter: brightness(1.1); }
+  .i1{ background: linear-gradient(150deg,#5fb6ff,#1668e3); }
+  .i2{ background: linear-gradient(150deg,#ff8f6b,#ff4d6d); }
+  .i3{ background: linear-gradient(150deg,#ffd76a,#ff9d2e); color:#5a3b00; }
+  .i4{ background: linear-gradient(150deg,#ff8cc6,#c945ff); }
+  .i5{ background: linear-gradient(150deg,#7ef0d0,#13a88c); }
+  .i6{ background: linear-gradient(150deg,#4a5066,#181c2a); font-family: ui-monospace, monospace; font-size: 14px; }
+  .i7{ background: linear-gradient(150deg,#c9d3e6,#7f8ba3); color: #1b2233; }
+  .i8{ background: linear-gradient(150deg,#9aa7bd,#5b6678); }
+
+  /* ---------- hint ---------- */
+  .hint{
+    position: absolute; left: 50%; bottom: 92px; transform: translateX(-50%) translateY(0);
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 9px 15px; border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.15);
+    background: rgba(14, 18, 30, .62);
+    box-shadow: 0 14px 34px rgba(0,0,0,.35);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    color: rgba(244,248,255,.82); font-size: 12px; letter-spacing: .01em;
+    z-index: 45;
+    transition: opacity .5s ease, transform .5s ease;
+  }
+  .hint:hover{ background: rgba(22, 28, 44, .75); }
+  .hint .mouse{
+    width: 13px; height: 19px; border-radius: 7px;
+    border: 1.4px solid rgba(200, 225, 255, .8);
+    position: relative; flex: none;
+  }
+  .hint .mouse::before{
+    content: ""; position: absolute; left: 50%; top: 4px; width: 1.4px; height: 4px;
+    background: rgba(200,225,255,.85); transform: translateX(-50%);
+    animation: wheel 1.6s ease-in-out infinite;
+  }
+  @keyframes wheel{ 0%,100%{ transform: translate(-50%,0); opacity:.9 } 50%{ transform: translate(-50%,3px); opacity:.35 } }
+  .hint .hint-space{ display: inline-flex; align-items: center; gap: 10px; }
+  .hint .hint-text{ white-space: nowrap; }
+  .hint .sep{ display: inline-block; width: 1px; height: 12px; background: rgba(255,255,255,.16); }
+  .hint.gone{ opacity: 0; transform: translateX(-50%) translateY(8px); pointer-events: none; }
+
+  /* ---------- custom cursor ---------- */
+  .cursor{
+    position: fixed; left: 0; top: 0; width: 0; height: 0;
+    z-index: 9999; pointer-events: none;
+    opacity: 0; transition: opacity .3s ease;
+    will-change: transform;
+  }
+  .cursor.visible{ opacity: 1; }
+  .cursor-inner{
+    position: absolute; left: 0; top: 0; width: 26px; height: 36px;
+    transform-origin: 2.5px 2.5px;
+    transform: scale(1);
+    transition: transform .42s cubic-bezier(.36,.07,.19,.97), filter .3s ease;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,.5));
+    will-change: transform;
+  }
+  .cursor.found .cursor-inner{
+    transform: scale(var(--zoom));
+    transition: transform .38s cubic-bezier(.3,1.75,.45,1), filter .3s ease;
+    filter: drop-shadow(0 4px 8px rgba(0,0,0,.5));
+  }
+  .cursor.found .cursor-inner svg{ animation: shine 1.2s ease-out both; }
+  @keyframes shine{
+    0%{ filter: brightness(1); }
+    20%{ filter: brightness(1.28); }
+    100%{ filter: brightness(1); }
+  }
+
+  /* ---------- ripple ---------- */
+  #rings{ position: fixed; inset: 0; z-index: 9998; pointer-events: none; }
+  .ring{
+    position: fixed; width: 280px; height: 280px; margin: -140px 0 0 -140px;
+    border-radius: 50%; border: 3px solid rgba(226, 242, 255, .9);
+    opacity: 0; pointer-events: none;
+    animation: sonar 1.05s cubic-bezier(.12,.72,.24,1) both;
+  }
+  .ring.warm{ border-color: rgba(206, 228, 255, .55); }
+  @keyframes sonar{
+    0%{ transform: scale(.05); opacity: 0; }
+    9%{ opacity: .8; }
+    55%{ opacity: .22; }
+    100%{ transform: scale(1); opacity: 0; }
+  }
+  .bloom{
+    position: fixed; width: 190px; height: 190px; margin: -95px 0 0 -95px;
+    border-radius: 50%; pointer-events: none; opacity: 0;
+    background: radial-gradient(circle, rgba(176, 218, 255, .38), rgba(176, 218, 255, 0) 70%);
+    animation: bloom .8s ease-out both;
+  }
+  @keyframes bloom{
+    0%{ transform: scale(.15); opacity: 0; }
+    22%{ opacity: .9; }
+    100%{ transform: scale(1.25); opacity: 0; }
+  }
+
+  @media (max-width: 1080px){
+    .why-window{ display: none; }
+    .main-window{ width: min(620px, 78vw); }
+  }
+  @media (max-width: 720px){
+    .main-window{ left: 18px; right: 18px; top: 54px; width: auto; }
+    .main-window .content{ padding: 22px 22px 24px; }
+    .menubar{ padding: 0 12px; }
+    .menubar .mb-left span:not(.app):not(.mark){ display: none; }
+    .mb-left, .mb-right{ gap: 10px; }
+    .dock{ gap: 5px; padding: 7px 9px; bottom: 12px; }
+    .dock button{ width: 32px; height: 32px; border-radius: 9px; font-size: 14px; }
+    .dock button:hover{ transform: translateY(-5px) scale(1.1); }
+    .hint{ bottom: 78px; white-space: nowrap; }
+    .hint .hint-space{ display: none; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .aurora{ animation: none; }
+    .hint .mouse::before{ animation: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="stage" id="stage">
+    <div class="wallpaper"></div>
+    <div class="aurora a1"></div>
+    <div class="aurora a2"></div>
+    <div class="aurora a3"></div>
+    <div class="grain"></div>
+    <div class="vignette"></div>
+
+    <header class="menubar">
+      <div class="mb-left">
+        <span class="mark"></span>
+        <span class="app">访达</span>
+        <span>文件</span><span>编辑</span><span>显示</span><span>前往</span><span>窗口</span><span>帮助</span>
+      </div>
+      <div class="mb-right">
+        <svg width="16" height="12" viewBox="0 0 16 12" fill="none" aria-hidden="true">
+          <path d="M1 4.1C3.9 1.5 6.8.4 8 .4s4.1 1.1 7 3.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+          <path d="M3.6 6.7C5.2 5.3 6.7 4.7 8 4.7s2.8.6 4.4 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+          <circle cx="8" cy="9.7" r="1.4" fill="currentColor"/>
+        </svg>
+        <svg width="22" height="11" viewBox="0 0 22 11" fill="none" aria-hidden="true">
+          <rect x=".6" y=".6" width="18" height="9.8" rx="2.4" stroke="currentColor" stroke-opacity=".7" stroke-width="1.1"/>
+          <rect x="2.4" y="2.4" width="12.6" height="6.2" rx="1.3" fill="currentColor" fill-opacity=".85"/>
+          <path d="M20.4 3.7v3.6c.9-.3 1.4-.9 1.4-1.8s-.5-1.5-1.4-1.8Z" fill="currentColor" fill-opacity=".65"/>
+        </svg>
+        <span id="clock">周一 10:44</span>
+      </div>
+    </header>
+
+    <main class="desktop">
+      <section class="window main-window">
+        <div class="titlebar">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">快速定位 — 设计笔记</span>
+        </div>
+        <div class="content">
+          <p class="eyebrow">Apple 动效拆解 · 快速定位</p>
+          <h1>摇一摇，<br><span class="grad">找到指针</span></h1>
+          <p class="lede">
+            指针藏进满屏窗口之后，最自然的动作不是搜索，而是摇晃。
+            把这一下下意识的动作，翻译成一次短暂、明确、可逆的放大反馈。
+          </p>
+          <div class="specs">
+            <div class="spec">
+              <span class="k">触发</span><span class="v">0.75 秒内 4 次以上方向反转</span><span class="n">≥ 100px</span>
+            </div>
+            <div class="spec">
+              <span class="k">反馈</span><span class="v">指针原地放大，不弹窗、不遮挡</span><span class="n">2.4×</span>
+            </div>
+            <div class="spec">
+              <span class="k">收束</span><span class="v">找到后自动恢复原状，不打断操作</span><span class="n">1.35s</span>
+            </div>
+          </div>
+          <div class="cta">摇动鼠标，或按 <kbd>Space</kbd> 预览</div>
+        </div>
+      </section>
+
+      <section class="window why-window">
+        <div class="titlebar">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">为什么这个细节成立</span>
+        </div>
+        <div class="content">
+          <h2>三个设计支点</h2>
+          <ol class="reasons">
+            <li>
+              <span class="num">01</span>
+              <div>
+                <strong>顺应本能</strong>
+                <p>找不到东西时，人会下意识地晃动视线或手。交互只是接住了这个动作。</p>
+              </div>
+            </li>
+            <li>
+              <span class="num">02</span>
+              <div>
+                <strong>强反馈，低打扰</strong>
+                <p>不弹窗、不移动布局，只在指针原地放大，视线被温和地拉回去。</p>
+              </div>
+            </li>
+            <li>
+              <span class="num">03</span>
+              <div>
+                <strong>自动退场</strong>
+                <p>找到即恢复。高频操作里，克制比炫技更重要。</p>
+              </div>
+            </li>
+          </ol>
+        </div>
+      </section>
+    </main>
+
+    <nav class="dock" aria-label="Dock">
+      <button class="i1" title="访达">◍</button>
+      <button class="i2" title="浏览器">◎</button>
+      <button class="i3" title="备忘录">✎</button>
+      <button class="i4" title="音乐">♫</button>
+      <button class="i5" title="照片">✿</button>
+      <button class="i6" title="终端">&gt;_</button>
+      <button class="i7" title="设置">⚙</button>
+      <button class="i8" title="废纸篓">⌫</button>
+    </nav>
+
+    <button class="hint" id="hint" type="button">
+      <span class="mouse" aria-hidden="true"></span>
+      快速左右摇动鼠标
+      <span class="hint-space">
+        <span class="sep" aria-hidden="true"></span>
+        <span class="hint-text">按 <kbd>Space</kbd> 预览</span>
+      </span>
+    </button>
+  </div>
+
+  <div class="cursor" id="cursor" aria-hidden="true">
+    <div class="cursor-inner">
+      <svg width="26" height="36" viewBox="0 0 26 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M2.6 1.6 L2.6 27.6 L9.1 21.2 L13.5 31.7 L17.7 29.9 L13.3 19.6 L22.6 19.6 Z"
+              fill="#fbfbfd" stroke="#15161c" stroke-width="1.5" stroke-linejoin="round"/>
+        <path d="M4 4.9 L4 22.2" stroke="rgba(255,255,255,.55)" stroke-width="1.1" stroke-linecap="round"/>
+      </svg>
+    </div>
+  </div>
+
+  <div id="rings" aria-hidden="true"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var cursor = document.getElementById("cursor");
+  var rings = document.getElementById("rings");
+  var hint = document.getElementById("hint");
+  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  var x = window.innerWidth / 2;
+  var y = window.innerHeight / 2;
+  var samples = [];
+  var cooldownUntil = 0;
+  var restoreTimer = null;
+  var hinted = false;
+
+  document.documentElement.classList.add("custom-cursor");
+
+  function place(nx, ny) {
+    x = nx;
+    y = ny;
+    cursor.style.transform = "translate3d(" + x + "px," + y + "px,0)";
+  }
+  place(x, y);
+
+  requestAnimationFrame(function () {
+    cursor.classList.add("visible");
+  });
+
+  document.addEventListener("pointermove", function (e) {
+    place(e.clientX, e.clientY);
+    cursor.classList.add("visible");
+    track(e.clientX, e.clientY, performance.now());
+  }, { passive: true });
+
+  document.addEventListener("mouseout", function (e) {
+    if (!e.relatedTarget) cursor.classList.remove("visible");
+  });
+  document.addEventListener("mouseenter", function () {
+    cursor.classList.add("visible");
+  });
+  window.addEventListener("blur", function () {
+    cursor.classList.remove("visible");
+  });
+
+  function track(px, py, now) {
+    samples.push({ x: px, y: py, t: now });
+    var cutoff = now - 750;
+    while (samples.length && samples[0].t < cutoff) samples.shift();
+
+    if (now < cooldownUntil || samples.length < 9) return;
+    if (isShake()) fire(now);
+  }
+
+  function isShake() {
+    var revX = 0, revY = 0, dirX = 0, dirY = 0, dist = 0;
+    var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+
+    for (var i = 1; i < samples.length; i++) {
+      var dx = samples[i].x - samples[i - 1].x;
+      var dy = samples[i].y - samples[i - 1].y;
+      dist += Math.sqrt(dx * dx + dy * dy);
+
+      if (samples[i].x < minX) minX = samples[i].x;
+      if (samples[i].x > maxX) maxX = samples[i].x;
+      if (samples[i].y < minY) minY = samples[i].y;
+      if (samples[i].y > maxY) maxY = samples[i].y;
+
+      if (Math.abs(dx) >= 6) {
+        var sx = dx > 0 ? 1 : -1;
+        if (dirX && sx !== dirX) revX++;
+        dirX = sx;
+      }
+      if (Math.abs(dy) >= 6) {
+        var sy = dy > 0 ? 1 : -1;
+        if (dirY && sy !== dirY) revY++;
+        dirY = sy;
+      }
+    }
+
+    var spanX = maxX - minX;
+    var spanY = maxY - minY;
+    return dist > 260 && ((revX >= 4 && spanX > 100) || (revY >= 4 && spanY > 100));
+  }
+
+  function fire(now) {
+    now = now || performance.now();
+    cooldownUntil = now + 1800;
+    samples.length = 0;
+
+    cursor.classList.remove("found");
+    void cursor.offsetWidth;
+    cursor.classList.add("found");
+
+    burst();
+
+    if (!hinted) {
+      hinted = true;
+      hint.classList.add("gone");
+    }
+
+    clearTimeout(restoreTimer);
+    restoreTimer = setTimeout(function () {
+      cursor.classList.remove("found");
+    }, reduceMotion ? 900 : 1350);
+  }
+
+  function burst() {
+    var bloom = document.createElement("div");
+    bloom.className = "bloom";
+    bloom.style.left = x + "px";
+    bloom.style.top = y + "px";
+    rings.appendChild(bloom);
+    setTimeout(function () { bloom.remove(); }, 900);
+
+    for (var i = 0; i < 3; i++) {
+      var ring = document.createElement("div");
+      ring.className = "ring" + (i === 2 ? " warm" : "");
+      ring.style.left = x + "px";
+      ring.style.top = y + "px";
+      ring.style.animationDelay = (i * 110) + "ms";
+      rings.appendChild(ring);
+      (function (el) {
+        setTimeout(function () { el.remove(); }, 1400);
+      })(ring);
+    }
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (e.code === "Space" && !e.repeat) {
+      e.preventDefault();
+      fire();
+    }
+  });
+
+  hint.addEventListener("click", function () {
+    fire();
+  });
+
+  function tickClock() {
+    var d = new Date();
+    var days = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+    var hh = String(d.getHours()).padStart(2, "0");
+    var mm = String(d.getMinutes()).padStart(2, "0");
+    document.getElementById("clock").textContent = days[d.getDay()] + " " + hh + ":" + mm;
+  }
+  tickClock();
+  setInterval(tickClock, 15000);
+})();
+</script>
+</body>
+</html>

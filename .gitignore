@@ -1,0 +1,11 @@
+# Build output
+windows/FindMyCursor.exe
+windows/FindMyCursor-preview.png
+windows/obj/
+windows/bin/
+
+# Local runtime config (generated on first run)
+windows/settings.ini
+
+# Logs
+*.log
