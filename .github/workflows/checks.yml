@@ -13,4 +13,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build (csc)
-        run: powershell -ExecutionPolicy Bypass -File windows/build.ps1
+        shell: pwsh
+        run: ./windows/build.ps1
